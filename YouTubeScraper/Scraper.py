@@ -186,28 +186,10 @@ class Scraper:
         all_videos = self.get_all_links(playlistsLinks, driver)
         print('done - 4')
 
-        #5 - get all info
+        # 5 - get all info
         result = self.get_all_info(driver, all_videos)
         self.print_list(result)
         print('done - 5')
 
         self.write_csv(result, 'result.csv')
         print('done - all')
-
-
-        # 4 - get links by video in current playlist
-        # title = 'история жизни гениальных авторов'
-        # link = self.clean_str(str(playlistsLinks[title]))
-        # videos_link = self.get_videos(driver, link)
-        # self.print_collect(videos_link)
-
-        # test
-        # title = 'атака титанов'
-        # link = self.clean_str(str(playlistsLinks[title]))
-        # videosLinks = self.get_videos(driver, link)
-        # # self.printCollect(videosLinks)
-        #
-        # videoTitle = 'атака титанов - аниме, которое тебя шокирует! / обзор и анализ сериала ч.1'
-        # videolink = self.clean_str(str(videosLinks[videoTitle]))
-        # print(videolink)
-        # self.getVideoInfo(videolink, driver)
