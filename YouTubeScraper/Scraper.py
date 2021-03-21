@@ -1,34 +1,30 @@
-import os
+from datetime import datetime
 import collections
 import requests
 import re
 import pafy
 import pandas as pd
-import time
-from time import sleep
-from datetime import datetime
 from selenium import webdriver
-from selenium.webdriver import ActionChains
-from selenium.webdriver import Chrome
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-import selenium.webdriver.support.ui as ui
-from selenium.common.exceptions import NoSuchElementException
 
 
 class Scraper:
 
-    def __init__(self, path):
+    def __init__(self, path, name):
         self._path = path
+        self._name = name
 
-    def set_path(self, p):
+    def set_path(self, p, n):
         self._path = p
+        self._name = n
 
     def get_path(self):
         return self._path
+
+    def get_name(self):
+        return  self._name
 
     # ----------------------------------------------------------------------------------------------------------------------------------------#
 
@@ -59,7 +55,7 @@ class Scraper:
     def clean_str(line):
         rubbish = ['[', ']', '\'', '\xa0',
                    'отмето', 'отметк', 'просмотро', 'просмотров', 'просмотра', 'просомтр',
-                   'комментарий', 'комментариев', 'комментария']
+                   'комментарий', 'комментариев', 'комментария', 'Дата премьеры: ']
         for rub in rubbish:
             if rub in line:
                 line = line.replace(rub, '')
@@ -76,14 +72,13 @@ class Scraper:
                 return self.clean_str(lines[0])
             elif len(lines) == 4:
                 return self.clean_str(lines[2])
-        except:
-            return 'none'
+        except: return 'none'
 
     # ----------------------------------------------------------------------------------------------------------------------------------------
     @staticmethod
-    def write_csv(data, path):
+    def write_csv(data, name):
         df = pd.DataFrame(data)
-        df.to_csv(path, sep=';', encoding='utf-8-sig', index=False)
+        df.to_csv('result ' + name + '.csv', sep=';', encoding='utf-8-sig', index=False)
 
     # ----------------------------------------------------------------------------------------------------------------------------------------
 
@@ -112,13 +107,11 @@ class Scraper:
                 else:
                     link = self.clean_str(str(item.get_attribute("href")))
                     video_links[title].append(link)
-            except:
-                flag = False
+            except: flag = False
         return video_links
 
     def get_all_links(self, pl_links, driver):
         result = collections.defaultdict(list)
-        count = 0
         for playlist in pl_links:
             link = pl_links[playlist][0]
             videos = self.get_videos(driver, link)
@@ -126,37 +119,44 @@ class Scraper:
                 result[video + ' playlist:' + playlist].append(videos[video][0])
         return result
 
-
-    def getVideoInfo(self, link, driver):
+    def get_video_info(self, link):
+        driver = self.driver_setting()
         driver.get(link)
-
-        date = (WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, r"""//*[@id="date"]/yt-formatted-string""")))).text
+        try:
+            date = (WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.XPATH, r"""//*[@id="date"]/yt-formatted-string""")))).text
+        except: date = ''
 
         driver.execute_script('window.scrollTo(0, 500);')
         try:
             count_comments = self.clean_str((WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.XPATH, r"""//*[@id="count"]/yt-formatted-string""")))).text)
-        except:
-            count_comments = 0
+        except: count_comments = 0
 
         f = requests.get(link)
         f_text = f.text
-        count_like = self.clean_str(re.findall(r"[0-9\s]+\sотмет[а-я]", f_text)[0])
-        count_dislike = self.clean_str(re.findall(r"[0-9\s]+\sотмет[а-я]", f_text)[2])
-        views = self.clean_str(re.findall(r"[0-9\s]+\sпросмотр[а-я]", f_text)[2])
+        try: count_like = self.clean_str(re.findall(r"[0-9\s]+\sотмет[а-я]", f_text)[0])
+        except: count_like = 0
+        try: count_dislike = self.clean_str(re.findall(r"[0-9\s]+\sотмет[а-я]", f_text)[2])
+        except: count_dislike = 0
+        try: views = self.clean_str(re.findall(r"[0-9\s]+\sпросмотр[а-я]", f_text)[2])
+        except: views = 0
 
-        video = pafy.new(link)
-        duration = video.length
-        return [count_like, count_dislike, views, duration, date]
+        try:
+            video = pafy.new(link)
+            duration = video.length
+            driver.quit()
+        except: duration = 0
+        driver.quit()
+        return [count_like, count_dislike, views, count_comments, duration, date]
 
-    def get_all_info(self, driver, videos):
+    def get_all_info(self, videos):
         result = []
         size = str(len(videos))
         count = 1
         for video in videos:
             link = self.clean_str(str(videos[video]))
-            info = self.getVideoInfo(link, driver)
+            info = self.get_video_info(link)
             title = video.split(' playlist:')
             cur_result = [title[0], title[1]] + info
             result.append(cur_result)
@@ -164,32 +164,34 @@ class Scraper:
             count += 1
         return result
 
-
-
-
     # ----------------------------------------------------------------------------------------------------------------------------------------#
 
     def start_scraper(self):
+
+        print('Start parser')
+        print(datetime.now())
         # 1 - start driver(Google Chrome)
         driver = self.driver_setting()
-        print('done - 1')
+        print('done - driver settings')
 
         # 2 - go to playlists page
-        driver.get(self._path + '/playlists')
-        print('done - 2')
+        driver.get(self._path + '/playlists?view=1&sort=dd&shelf_id=0')
+        print('done - get playlist path')
 
         # 3 - get links by all playlists
-        playlistsLinks = self.get_pl_links(driver)
-        print('done - 3')
+        playlists_links = self.get_pl_links(driver)
+        print('done - get playlists links')
 
-        # 4 - get links by videos in all playlist
-        all_videos = self.get_all_links(playlistsLinks, driver)
-        print('done - 4')
+        # 4 - get links by videos in all playlists
+        all_videos = self.get_all_links(playlists_links, driver)
+        print('done - get all links in all playlists')
+        driver.quit()
 
         # 5 - get all info
-        result = self.get_all_info(driver, all_videos)
-        self.print_list(result)
-        print('done - 5')
+        result = self.get_all_info(all_videos)
+        print('done - get all info')
 
-        self.write_csv(result, 'result.csv')
-        print('done - all')
+        self.write_csv(result, self.get_name())
+        print('done - write in csv')
+        print('End')
+        print(datetime.now())
